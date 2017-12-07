@@ -6,6 +6,10 @@ from sublime import Region
 import re
 from itertools import takewhile
 
+INDENT_LEVEL_SCOPES = r'^meta\.'
+INDENT_LEVEL_SCOPES_IGNORE = r'^meta\.insert-snippet'
+INDENT_ENDING_SCOPES = r'punctuation\..*\.end'
+
 def gcp(*lists):
     s1 = min(lists)
     s2 = max(lists)
@@ -19,7 +23,9 @@ def gcp(*lists):
 class SmartIndentCommand(sublime_plugin.TextCommand):
     def run(self, edit):
         lines = self.view.lines(Region(0, self.view.size()))
-        regions, levels = map(list, zip( *map(self.get_depth, lines) ))
+
+        levels = [ self.get_depth(line) for line in lines ]
+        regions = [ self.get_indent(line) for line in lines ]
 
         for i in range(len(lines) - 1):
             if levels[i+1] > levels[i]:
@@ -37,13 +43,22 @@ class SmartIndentCommand(sublime_plugin.TextCommand):
 
         for region, level in reversed(list(zip(regions, levels))):
             line = self.view.substr(self.view.line(region.begin()))
+
             if line == '' or line.isspace():
-                self.view.erase(edit, region)
-            elif level is not None:
-                self.view.replace(edit,
-                    region,
-                    '\t' * level
-                )
+                level = 0
+
+            if level is not None:
+                old_indent = self.view.substr(region)
+                new_indent = '\t' * level
+                if new_indent != old_indent:
+                    self.view.replace(edit, region, new_indent)
+
+    def get_indent(self, line):
+        text = self.view.substr(line)
+        indent_width = len(text) - len(text.lstrip())
+
+        begin = line.begin() + indent_width
+        return Region(line.begin(), begin)
 
     def get_depth(self, line):
         def scopes(point):
@@ -53,13 +68,12 @@ class SmartIndentCommand(sublime_plugin.TextCommand):
         indent_width = len(text) - len(text.lstrip())
 
         begin = line.begin() + indent_width
-        indent_region = Region(line.begin(), begin)
 
         parts = scopes(begin)
 
         r = begin
         while any(
-            re.search(r'punctuation\..*\.end', s)
+            re.search(INDENT_ENDING_SCOPES, s)
             for s in parts
         ):
             r += 1
@@ -76,12 +90,10 @@ class SmartIndentCommand(sublime_plugin.TextCommand):
                 scopes(line.begin() - 1)
             )
 
-        if self.view.match_selector(line.begin(), 'string,comment'):
-            return (indent_region, None)
-
         new_indent = len([
             part for part in parts
-            if part.startswith('meta.')
+            if re.search(INDENT_LEVEL_SCOPES, part) and not
+                re.search(INDENT_LEVEL_SCOPES_IGNORE, part)
         ])
 
-        return (indent_region, new_indent)
+        return new_indent
