@@ -1,0 +1,6 @@
+[
+    {
+        "keys": ["ctrl+f9"],
+        "command": "smart_indent",
+    },
+]
